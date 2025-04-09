@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificador de Enlaces M3U</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #2d2d2d; /* Fondo oscuro */
+            color: #f1f1f1; /* Texto claro */
+            display: flex;
+            flex-direction: column;
+            height: 100vh; /* Full height */
+            justify-content: flex-start;
+            align-items: center;
+            overflow: hidden; /* Evita barra de desplazamiento */
+        }
+        h1 {
+            margin-top: 20px;
+            text-align: center;
+            color: #ffcc00; /* Color dorado para el título */
+        }
+        textarea {
+            width: 90%;
+            height: 120px;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            background-color: #333; /* Fondo oscuro para el textarea */
+            color: #f1f1f1; /* Texto claro en el textarea */
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50; /* Verde oscuro */
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .results {
+            width: 90%;
+            height: 250px;
+            margin-top: 20px;
+            overflow-y: auto;
+            border: 2px solid #ccc;
+            padding: 10px;
+            background-color: #444; /* Fondo más oscuro para la lista de resultados */
+            border-radius: 5px;
+        }
+        .result {
+            margin: 5px 0;
+        }
+        .active {
+            color: #4CAF50; /* Verde claro para los canales activos */
+        }
+        .inactive {
+            color: #f44336; /* Rojo claro para los canales inactivos */
+        }
+        .m3u-output {
+            width: 90%;
+            padding: 10px;
+            background-color: #333; /* Fondo oscuro para el área de salida M3U */
+            border: 1px solid #ccc;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin-top: 20px;
+            border-radius: 5px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .copy-button {
+            width: 90%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+            border-radius: 5px;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .copy-button:hover {
+            background-color: #0056b3;
+        }
+        .clear-button {
+            width: 90%;
+            padding: 10px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+        .clear-button:hover {
+            background-color: #e53935;
+        }
+        .status-info {
+            font-weight: bold;
+            margin-top: 10px;
+            color: #ffcc00; /* Color dorado para la información de estado */
+        }
+        .verifying-text {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffcc00;
+            display: none;
+            text-align: center;
+        }
+        .counter {
+            font-size: 16px;
+            font-weight: bold;
+            margin-top: 10px;
+            color: #f1f1f1;
+        }
+    </style>
+</head>
+<body>
+    <h1>Verificador de Enlaces M3U</h1>
+    <textarea id="m3uInput" placeholder="Ingresa los enlaces M3U (con #EXTM3U y #EXTINF)"></textarea>
+    <button onclick="checkLinks()">Verificar Enlaces</button>
+    <button class="clear-button" onclick="clearAll()">Limpiar</button>
+    
+    <div class="status-info" id="statusInfo"></div>
+    <div class="verifying-text" id="verifyingText">Verificando...</div>
+
+    <div class="counter" id="counter"></div> <!-- Contador para enlaces verificados -->
+
+    <div class="results" id="results"></div>
+
+    <div class="m3u-output" id="m3uOutput"></div>
+
+    <button class="copy-button" id="copyButton" onclick="copyToClipboard()">Copiar Lista M3U Activa</button>
+
+    <script>
+        async function checkLink(url) {
+            try {
+                let response = await fetch(url, { method: 'HEAD' });
+                if (response.ok) {
+                    return { url, status: 'Activo', className: 'active' };
+                } else {
+                    return { url, status: 'Inactivo', className: 'inactive' };
+                }
+            } catch (error) {
+                return { url, status: 'Inactivo', className: 'inactive' };
+            }
+        }
+
+        async function checkLinks() {
+            const input = document.getElementById('m3uInput').value.trim();
+            const lines = input.split('\n');
+            const urls = [];
+            const activeUrls = [];
+            const channelNames = [];
+            
+            // Mostrar el texto "Verificando..." intermitente
+            const verifyingText = document.getElementById('verifyingText');
+            verifyingText.style.display = 'block';
+
+            // Extraer los enlaces y nombres de canal
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith('#EXTINF')) {
+                    const nextLine = lines[i + 1]?.trim();
+                    if (nextLine && nextLine.startsWith('http')) {
+                        const match = line.match(/#EXTINF:-1.*?,\s*(.*)/);
+                        if (match) {
+                            channelNames.push(match[1]);
+                        } else {
+                            channelNames.push('Canal sin nombre');
+                        }
+                        urls.push(nextLine);
+                    }
+                }
+            }
+
+            const resultsContainer = document.getElementById('results');
+            resultsContainer.innerHTML = '';
+
+            let activeCount = 0;
+            let inactiveCount = 0;
+
+            // Mostrar el total de enlaces en el contador
+            const totalLinks = urls.length;
+            updateCounter(0, totalLinks);  // Mostrar que ninguno ha sido chequeado aún
+
+            let checkedCount = 0;  // Variable para contar los enlaces verificados
+
+            // Verifica cada enlace
+            for (const [index, url] of urls.entries()) {
+                const result = await checkLink(url);
+                const resultDiv = document.createElement('div');
+                resultDiv.className = `result ${result.className}`;
+                resultDiv.textContent = `${channelNames[index]} - ${result.status}`;
+                resultsContainer.appendChild(resultDiv);
+
+                // Cuenta los activos e inactivos
+                if (result.className === 'active') {
+                    activeCount++;
+                    activeUrls.push(url);
+                } else {
+                    inactiveCount++;
+                }
+
+                // Actualiza el contador de enlaces verificados
+                checkedCount++;
+                updateCounter(checkedCount, totalLinks);
+            }
+
+            verifyingText.style.display = 'none';
+
+            document.getElementById('statusInfo').textContent = `Canales totales: ${urls.length} | Activos: ${activeCount} | Inactivos: ${inactiveCount}`;
+
+            generateM3U(activeUrls, channelNames);
+        }
+
+        function updateCounter(checkedCount, totalLinks) {
+            const counterElement = document.getElementById('counter');
+            counterElement.textContent = `Enlaces verificados: ${checkedCount} de ${totalLinks} | Faltan: ${totalLinks - checkedCount}`;
+        }
+
+        function generateM3U(activeUrls, channelNames) {
+            let m3uContent = '#EXTM3U\n';
+            for (let i = 0; i < activeUrls.length; i++) {
+                m3uContent += `#EXTINF:-1, ${channelNames[i]}\n${activeUrls[i]}\n`;
+            }
+
+            const m3uOutput = document.getElementById('m3uOutput');
+            m3uOutput.textContent = m3uContent;
+        }
+
+        function copyToClipboard() {
+            const m3uOutput = document.getElementById('m3uOutput');
+            const textArea = document.createElement('textarea');
+            textArea.value = m3uOutput.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            alert('¡Lista M3U copiada al portapapeles!');
+        }
+
+        function clearAll() {
+            document.getElementById('m3uInput').value = '';
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('statusInfo').textContent = '';
+            document.getElementById('m3uOutput').textContent = '';
+            document.getElementById('counter').textContent = '';
+        }
+    </script>
+</body>
+</html>
